@@ -9,11 +9,11 @@ third_party {
     type: GIT
     value: "https://github.com/google/oss-fuzz.git"
   }
-  version: "1a87da68c870ce09ab6ffac30589da12e7ff6a8d"
+  version: "4e241e814080eac62a106931214cbd17275182cc"
   license_type: NOTICE
   last_upgrade_date {
     year: 2020
-    month: 2
+    month: 6
     day: 1
   }
 }

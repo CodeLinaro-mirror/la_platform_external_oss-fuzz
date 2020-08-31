@@ -41,7 +41,7 @@ ENGINE_INFO = {
                    supported_architectures=['x86_64']),
     'honggfuzz':
         EngineInfo(upload_bucket='clusterfuzz-builds-honggfuzz',
-                   supported_sanitizers=['address', 'memory', 'undefined'],
+                   supported_sanitizers=['address'],
                    supported_architectures=['x86_64']),
     'dataflow':
         EngineInfo(upload_bucket='clusterfuzz-builds-dataflow',
@@ -98,14 +98,15 @@ def get_signed_url(path, method='PUT', content_type=''):
           urllib.urlencode(values))
 
 
-def download_corpora_step(project_name):
-  """Returns a GCB step for downloading corpora backups for the given project.
+def download_corpora_steps(project_name):
+  """Returns GCB steps for downloading corpora backups for the given project.
   """
   fuzz_targets = _get_targets_list(project_name)
   if not fuzz_targets:
     sys.stderr.write('No fuzz targets found for project "%s".\n' % project_name)
     return None
 
+  steps = []
   # Split fuzz targets into batches of CORPUS_DOWNLOAD_BATCH_SIZE.
   for i in range(0, len(fuzz_targets), CORPUS_DOWNLOAD_BATCH_SIZE):
     download_corpus_args = []
@@ -122,7 +123,7 @@ def download_corpora_step(project_name):
       corpus_archive_path = os.path.join('/corpus', binary_name + '.zip')
       download_corpus_args.append('%s %s' % (corpus_archive_path, url))
 
-    step = {
+    steps.append({
         'name': 'gcr.io/oss-fuzz-base/base-runner',
         'entrypoint': 'download_corpus',
         'args': download_corpus_args,
@@ -130,5 +131,70 @@ def download_corpora_step(project_name):
             'name': 'corpus',
             'path': '/corpus'
         }],
-    }
-    return step
+    })
+
+  return steps
+
+
+def http_upload_step(data, signed_url, content_type):
+  """Returns a GCB step to upload data to the given URL via GCS HTTP API."""
+  step = {
+      'name':
+          'gcr.io/cloud-builders/curl',
+      'args': [
+          '-H',
+          'Content-Type: ' + content_type,
+          '-X',
+          'PUT',
+          '-d',
+          data,
+          signed_url,
+      ],
+  }
+  return step
+
+
+def gsutil_rm_rf_step(url):
+  """Returns a GCB step to recursively delete the object with given GCS url."""
+  step = {
+      'name': 'gcr.io/cloud-builders/gsutil',
+      'entrypoint': 'sh',
+      'args': [
+          '-c',
+          'gsutil -m rm -rf %s || exit 0' % url,
+      ],
+  }
+  return step
+
+
+def project_image_steps(name, image, language):
+  """Returns GCB steps to build OSS-Fuzz project image."""
+  steps = [{
+      'args': [
+          'clone',
+          'https://github.com/google/oss-fuzz.git',
+      ],
+      'name': 'gcr.io/cloud-builders/git',
+  }, {
+      'name': 'gcr.io/cloud-builders/docker',
+      'args': [
+          'build',
+          '-t',
+          image,
+          '.',
+      ],
+      'dir': 'oss-fuzz/projects/' + name,
+  }, {
+      'name':
+          image,
+      'args': [
+          'bash', '-c',
+          'srcmap > /workspace/srcmap.json && cat /workspace/srcmap.json'
+      ],
+      'env': [
+          'OSSFUZZ_REVISION=$REVISION_ID',
+          'FUZZING_LANGUAGE=%s' % language,
+      ],
+  }]
+
+  return steps
