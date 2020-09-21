@@ -12,7 +12,7 @@ OSS-Fuzz aims to make common open source software more secure and stable by
 combining modern fuzzing techniques with scalable,
 distributed execution.
 
-We support the [libFuzzer](http://llvm.org/docs/LibFuzzer.html) and [AFL](http://lcamtuf.coredump.cx/afl/) fuzzing engines
+We support the [libFuzzer](http://llvm.org/docs/LibFuzzer.html) and [AFL](https://lcamtuf.coredump.cx/afl/) fuzzing engines
 in combination with [Sanitizers](https://github.com/google/sanitizers), as well as
 [ClusterFuzz](https://github.com/google/clusterfuzz),
 a distributed fuzzer execution environment and reporting tool. 
@@ -37,5 +37,3 @@ As of January 2020, OSS-Fuzz has found over [16,000] bugs in [250] open source p
 * 2016-12-01 - [Announcing OSS-Fuzz: Continuous fuzzing for open source software](https://opensource.googleblog.com/2016/12/announcing-oss-fuzz-continuous-fuzzing.html)
 * 2017-05-08 - [OSS-Fuzz: Five months later, and rewarding projects](https://opensource.googleblog.com/2017/05/oss-fuzz-five-months-later-and.html)
 * 2018-11-06 - [A New Chapter for OSS-Fuzz](https://security.googleblog.com/2018/11/a-new-chapter-for-oss-fuzz.html)
-
-
