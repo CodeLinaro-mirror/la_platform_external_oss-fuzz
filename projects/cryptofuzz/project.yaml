@@ -30,6 +30,8 @@ auto_ccs:
     - "tvandermerwe@mozilla.com"
     - "matthias.st.pierre@gmail.com"
     - "kaleb.himes@gmail.com"
+    - "polubelovam@gmail.com"
+    - "mbed-tls-security@lists.trustedfirmware.org"
 sanitizers:
  - address
  - undefined

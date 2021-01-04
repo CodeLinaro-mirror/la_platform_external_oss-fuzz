@@ -15,7 +15,6 @@
 ################################################################################
 
 FROM gcr.io/oss-fuzz-base/base-builder
-MAINTAINER oscar.mira@adevinta.com
 RUN apt-get update && apt-get install -y \
   curl \
   automake \
@@ -37,5 +36,8 @@ RUN git clone --depth 1 https://github.com/glennrp/libpng.git
 RUN git clone --depth 1 https://git.code.sf.net/p/giflib/code libgif
 RUN git clone --depth 1 https://chromium.googlesource.com/webm/libwebp
 RUN git clone --depth 1 https://gitlab.com/libtiff/libtiff 
+RUN git clone --depth 1 https://aomedia.googlesource.com/aom
+RUN git clone --depth 1 https://github.com/strukturag/libheif
+
 WORKDIR libvips
 COPY build.sh $SRC/

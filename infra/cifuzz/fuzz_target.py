@@ -20,6 +20,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -51,9 +52,6 @@ BUILD_ARCHIVE_NAME = 'oss_fuzz_latest.zip'
 # Zip file name containing the corpus.
 CORPUS_ZIP_NAME = 'public.zip'
 
-# The sanitizer build to download.
-SANITIZER = 'address'
-
 # The number of reproduce attempts for a crash.
 REPRODUCE_ATTEMPTS = 10
 
@@ -83,7 +81,13 @@ class FuzzTarget:
     project_name: The name of the relevant OSS-Fuzz project.
   """
 
-  def __init__(self, target_path, duration, out_dir, project_name=None):
+  #pylint: disable=too-many-arguments
+  def __init__(self,
+               target_path,
+               duration,
+               out_dir,
+               project_name=None,
+               sanitizer='address'):
     """Represents a single fuzz target.
 
     Note: project_name should be none when the fuzzer being run is not
@@ -100,6 +104,7 @@ class FuzzTarget:
     self.target_path = target_path
     self.out_dir = out_dir
     self.project_name = project_name
+    self.sanitizer = sanitizer
 
   def fuzz(self):
     """Starts the fuzz target run for the length of time specified by duration.
@@ -119,8 +124,8 @@ class FuzzTarget:
       command += ['-v', '%s:%s' % (self.out_dir, '/out')]
 
     command += [
-        '-e', 'FUZZING_ENGINE=libfuzzer', '-e', 'SANITIZER=address', '-e',
-        'RUN_FUZZER_MODE=interactive', 'gcr.io/oss-fuzz-base/base-runner',
+        '-e', 'FUZZING_ENGINE=libfuzzer', '-e', 'SANITIZER=' + self.sanitizer,
+        '-e', 'RUN_FUZZER_MODE=interactive', 'gcr.io/oss-fuzz-base/base-runner',
         'bash', '-c'
     ]
 
@@ -140,7 +145,7 @@ class FuzzTarget:
                                stderr=subprocess.PIPE)
 
     try:
-      _, err = process.communicate(timeout=self.duration + BUFFER_TIME)
+      _, stderr = process.communicate(timeout=self.duration + BUFFER_TIME)
     except subprocess.TimeoutExpired:
       logging.error('Fuzzer %s timed out, ending fuzzing.', self.target_name)
       return None, None
@@ -153,13 +158,12 @@ class FuzzTarget:
 
     # Crash was discovered.
     logging.info('Fuzzer %s, ended before timeout.', self.target_name)
-    err_str = err.decode('ascii')
-    test_case = self.get_test_case(err_str)
+    test_case = self.get_test_case(stderr)
     if not test_case:
-      logging.error('No test case found in stack trace: %s.', err_str)
+      logging.error(b'No test case found in stack trace: %s.', stderr)
       return None, None
     if self.is_crash_reportable(test_case):
-      return test_case, err_str
+      return test_case, stderr
     return None, None
 
   def is_reproducible(self, test_case, target_path):
@@ -277,18 +281,18 @@ class FuzzTarget:
     logging.info('The crash is reproducible without the current pull request.')
     return False
 
-  def get_test_case(self, error_string):
+  def get_test_case(self, error_bytes):
     """Gets the file from a fuzzer run stack trace.
 
     Args:
-      error_string: The stack trace string containing the error.
+      error_bytes: The bytes containing the output from the fuzzer.
 
     Returns:
-      The error test case or None if not found.
+      The path to the test case or None if not found.
     """
-    match = re.search(r'\bTest unit written to \.\/([^\s]+)', error_string)
+    match = re.search(rb'\bTest unit written to \.\/([^\s]+)', error_bytes)
     if match:
-      return os.path.join(self.out_dir, match.group(1))
+      return os.path.join(self.out_dir, match.group(1).decode('utf-8'))
     return None
 
   def get_lastest_build_version(self):
@@ -301,7 +305,7 @@ class FuzzTarget:
       return None
 
     version = VERSION_STRING.format(project_name=self.project_name,
-                                    sanitizer=SANITIZER)
+                                    sanitizer=self.sanitizer)
     version_url = url_join(GCS_BASE_URL, CLUSTERFUZZ_BUILDS, self.project_name,
                            version)
     try:
@@ -363,11 +367,44 @@ class FuzzTarget:
     return download_and_unpack_zip(corpus_url, corpus_dir)
 
 
-def download_and_unpack_zip(http_url, out_dir):
+def download_url(url, filename, num_retries=3):
+  """Downloads the file located at |url|, using HTTP to |filename|.
+
+  Args:
+    url: A url to a file to download.
+    filename: The path the file should be downloaded to.
+    num_retries: The number of times to retry the download on
+       ConnectionResetError.
+
+  Returns:
+    True on success.
+  """
+  sleep_time = 1
+
+  for _ in range(num_retries):
+    try:
+      urllib.request.urlretrieve(url, filename)
+      return True
+    except urllib.error.HTTPError:
+      # In these cases, retrying probably wont work since the error probably
+      # means there is nothing at the URL to download.
+      logging.error('Unable to download from: %s.', url)
+      return False
+    except ConnectionResetError:
+      # These errors are more likely to be transient. Retry.
+      pass
+    time.sleep(sleep_time)
+
+  logging.error('Failed to download %s, %d times.', url, num_retries)
+
+  return False
+
+
+def download_and_unpack_zip(url, out_dir):
   """Downloads and unpacks a zip file from an http url.
 
   Args:
-    http_url: A url to the zip file to be downloaded and unpacked.
+    url: A url to the zip file to be downloaded and unpacked.
     out_dir: The path where the zip file should be extracted to.
 
   Returns:
@@ -380,17 +417,15 @@ def download_and_unpack_zip(http_url, out_dir):
   # Gives the temporary zip file a unique identifier in the case that
   # that download_and_unpack_zip is done in parallel.
   with tempfile.NamedTemporaryFile(suffix='.zip') as tmp_file:
-    try:
-      urllib.request.urlretrieve(http_url, tmp_file.name)
-    except urllib.error.HTTPError:
-      logging.error('Unable to download build from: %s.', http_url)
+    result = download_url(url, tmp_file.name)
+    if not result:
       return None
 
     try:
       with zipfile.ZipFile(tmp_file.name, 'r') as zip_file:
         zip_file.extractall(out_dir)
     except zipfile.BadZipFile:
-      logging.error('Error unpacking zip from %s. Bad Zipfile.', http_url)
+      logging.error('Error unpacking zip from %s. Bad Zipfile.', url)
       return None
   return out_dir
 

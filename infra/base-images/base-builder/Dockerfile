@@ -16,7 +16,8 @@
 
 FROM gcr.io/oss-fuzz-base/base-clang
 
-RUN apt-get update && \
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
     apt-get install -y software-properties-common && \
     add-apt-repository ppa:git-core/ppa && \
     apt-get update && \
@@ -77,6 +78,8 @@ ENV RUSTUP_HOME=/rust/rustup
 ENV PATH=$PATH:/rust/bin
 RUN curl https://sh.rustup.rs | sh -s -- -y --default-toolchain=nightly
 RUN cargo install cargo-fuzz
+# Needed to recompile rust std library for MSAN
+RUN rustup component add rust-src --toolchain nightly
 
 # Default build flags for various sanitizers.
 ENV SANITIZER_FLAGS_address "-fsanitize=address -fsanitize-address-use-after-scope"
